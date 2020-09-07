@@ -191,8 +191,8 @@ object computeVelocities(vector<object>& objects, ros::Time& time, cv::Mat& imag
 		initKF();
 		KF.statePre.at<float>(0)=bucketPos.x;
 		KF.statePre.at<float>(1)=bucketPos.y;
-		KF.statePre.at<float>(2)=0.0;//dx / param.scale;// initial v_x
-		KF.statePre.at<float>(3)=0.0;//dy / param.scale;//initial v_y
+		KF.statePre.at<float>(2)=dx / param.scale;// initial v_x
+		KF.statePre.at<float>(3)=dy / param.scale;//initial v_y
 		
 		firstExecution = false;
 		corrected = true;
