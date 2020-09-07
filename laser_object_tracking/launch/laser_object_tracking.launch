@@ -1,0 +1,7 @@
+<launch>
+	<node pkg="laser_object_tracking" type="laser_object_tracker" name="laser_object_tracker" 
+	output="screen">
+		<param name="pub_image" value="true" />
+		<param name="display_image" value="false" />
+	</node>
+</launch>
