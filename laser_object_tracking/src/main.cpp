@@ -50,6 +50,10 @@ Can Improve:
 
 struct object{
   cv::Point center;
+  double distance;
+  double theta;
+  double velTheta;
+  double vel;
   double radius;
   double vx;
   double vy;
@@ -167,9 +171,16 @@ object computeVelocities(vector<object>& objects, ros::Time& time, cv::Mat& imag
 	      double dx = ( objects[i].center.x - past_objects[j].center.x ) / dt;
 	      double dy = ( objects[i].center.y - past_objects[j].center.y ) / dt;
 	      double vel = fabs( sqrt( pow( dx, 2) + pow( dy, 2 ) ) );
+	      cv::Point2f bucketPos = getBucketPos( param, objects[i] );
+	      //double distance = sqrt( pow( bucketPos.x, 2 ) + pow( bucketPos.y, 2 ) );
+	      //double theta = atan2( bucketPos.y, bucketPos.x );
 	      if( vel > 150.0 || vel < 1.0 || fabs(dx) < 0.01 || fabs(dy) < 0.01 )
 		continue;
 
+	      //objects[i].distance = distance;
+	      //objects[i].theta = theta;
+	      //objects[i].vel = ( distance - past_objects[j].distance ) / dt;
+	      //objects[i].velTheta = ( theta - past_objects[j].theta ) / dt; 
 	      objects[i].vx = dx;
 	      objects[i].vy = dy;
 	      objects[i].distDiff = dist;
@@ -178,18 +189,17 @@ object computeVelocities(vector<object>& objects, ros::Time& time, cv::Mat& imag
 	      {
 		KF.transitionMatrix = (Mat_<float>(4, 4) << 1.0f,0,dt,0,   0,1.0f,0,dt,  0,0,1.0f,0,  0,0,0,1.0f);
 		initKF();
-		cv::Point2f bucketPos = getBucketPos( param, objects[i] );
 		KF.statePre.at<float>(0)=bucketPos.x;
 		KF.statePre.at<float>(1)=bucketPos.y;
-		KF.statePre.at<float>(2)=dx / param.scale;// initial v_x
-		KF.statePre.at<float>(3)=dy / param.scale;//initial v_y
+		KF.statePre.at<float>(2)=0.0;//dx / param.scale;// initial v_x
+		KF.statePre.at<float>(3)=0.0;//dy / param.scale;//initial v_y
 		
 		firstExecution = false;
 		corrected = true;
 	      }
 	      else
 		{
-		  cv::Point2f bucketPos = getBucketPos( param, objects[i] );
+		  //cv::Point2f bucketPos = getBucketPos( param, objects[i] );
 		  correctKF( bucketPos, { 0, 0 } );
 		}
 	      result = objects[i];
@@ -206,8 +216,11 @@ void detectBin(cv::Mat& image, ros::Time& time, const imageParams& param)
 {
   cv::Mat canny;
   std::vector<cv::Vec3f> circles;
-  cv::Canny(image, canny, 900, 1, 5);
-  cv::HoughCircles( image, circles, CV_HOUGH_GRADIENT, 1.2, 900, 20, 1, 6, 8 );
+  //cv::Canny(image, canny, 900, 1, 5);
+  cv::Mat image_blur;
+  GaussianBlur( image, image_blur, Size(7, 7), 2, 2 );
+
+  cv::HoughCircles( image_blur, circles, CV_HOUGH_GRADIENT, 1.2, 900, 30, 1, 6, 8 );
   vector<object> objects;
   for( size_t i = 0; i < circles.size(); i++ ) 
     {
@@ -218,15 +231,26 @@ void detectBin(cv::Mat& image, ros::Time& time, const imageParams& param)
       obj.radius = radius;
       objects.push_back( obj );
     }
-  cv::Mat pred;
+  static cv::Mat pred;
   if( !firstExecution )
     {
       double dt = ( time - pastTime ).toNSec() / pow( 10, 9 );
       KF.transitionMatrix = (Mat_<float>(4, 4) << 1.0f,0,dt,0,   0,1.0f,0,dt,  0,0,1.0f,0,  0,0,0,1.0f);
 
+      cv::Point prevCenter = { 0, 0 };
+      if( !pred.empty() )
+	prevCenter = { ( pred.at<float>(0) * param.scale ) + param.offset_x, ( pred.at<float>(1) * param.scale ) + param.offset_y };
+
       pred = KF.predict();
+
       cv::Point center = { ( pred.at<float>(0) * param.scale ) + param.offset_x, ( pred.at<float>(1) * param.scale ) + param.offset_y };
-      cv::circle( image, center, 7, Scalar(255), -1 );
+      cv::circle( image_blur, center, 7, Scalar(255), -1 );
+      object obj;
+      obj.center.x = center.x;
+      obj.center.y = center.y;
+      obj.vx = ( center.x - prevCenter.x ) / dt;
+      obj.vy = ( center.y - prevCenter.y ) / dt;
+      publish_odometry( obj, param );
     }
 
   object bucket;
@@ -236,12 +260,10 @@ void detectBin(cv::Mat& image, ros::Time& time, const imageParams& param)
       past_objects = objects;
     }
   else
-    bucket = computeVelocities( objects, time, image, pred, param );
+    bucket = computeVelocities( objects, time, image_blur, pred, param );
 
-  if( bucket.distDiff < DBL_MAX )
-    {
-      publish_odometry( bucket, param );
-    }
+  
+  bitwise_or( image_blur, image, image );
   sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "mono8", image).toImageMsg();
   if( publishImage )
     pub_image.publish( msg );
@@ -328,9 +350,9 @@ int main(int argc, char** argv)
 
   ros::init (argc,argv,"laser_object_tracker");
   ros::NodeHandle nh;
-  nh.getParam("/laser_object_tracking/pub_image", publishImage);
-  nh.getParam("/laser_object_tracking/display_image", displayImage);
-
+  nh.getParam("/laser_object_tracker/pub_image", publishImage);
+  nh.getParam("/laser_object_tracker/display_image", displayImage);
+  
   ros::Subscriber sub = nh.subscribe ("laser_horizontal_front", 1, laser_cb);
   image_transport::ImageTransport it(nh);
   pub_image = it.advertise("image", 1);
