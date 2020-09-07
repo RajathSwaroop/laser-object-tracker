@@ -1,11 +1,12 @@
 # laser-object-tracker
 Ros node to track a bucket of radius 280mm detected using a stationary 2D lidar sensor
 
-**Algorithm.**
+**Algorithm brief.**
 - Construct a point cloud from a laser scan.
 - Project the points on to an image at a larger scale (50) in this project as image pixels are ints not double
 - Detect edges using canny edge detector and use HoughCircles from openCV to detect circles of radius between 6 to 8 pixels ( 0.24m to 0.32m radius )
 - Track the circle center by predicting the position using kalman filter from openCV.
+
 
 **Dependencies:**
 - ROS1
